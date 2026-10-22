@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fall Detection Monitor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg:          #090c10;
+    --panel:       #0d1117;
+    --surface:     #161b22;
+    --border:      #21262d;
+    --ok:          #2ea043;
+    --ok-glow:     #2ea04355;
+    --alert:       #f85149;
+    --alert-glow:  #f8514966;
+    --warn:        #d29922;
+    --text:        #e6edf3;
+    --muted:       #8b949e;
+    --mono:        'Share Tech Mono', monospace;
+    --sans:        'Barlow', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ─── Header ─── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    width: 32px; height: 32px;
+    display: grid; place-items: center;
+  }
+  .logo svg { width: 100%; height: 100%; }
+
+  h1 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .ws-status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .ws-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--warn);
+    transition: background 0.4s;
+  }
+  .ws-dot.connected   { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .ws-dot.disconnected{ background: var(--alert); }
+
+  .fall-counter {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: all 0.3s;
+  }
+  .fall-counter.active {
+    border-color: var(--alert);
+    color: var(--alert);
+    background: #1a0a09;
+    box-shadow: 0 0 12px var(--alert-glow);
+  }
+
+  /* ─── Alert banner ─── */
+  #alert-banner {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 24px;
+    background: #1a0a09;
+    border-bottom: 1px solid var(--alert);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--alert);
+    letter-spacing: 0.05em;
+    animation: pulse-bg 1s ease-in-out infinite alternate;
+  }
+  #alert-banner.visible { display: flex; }
+  @keyframes pulse-bg {
+    from { background: #1a0a09; }
+    to   { background: #220d0b; }
+  }
+  .alert-icon { font-size: 18px; animation: shake 0.5s ease-in-out infinite; }
+  @keyframes shake {
+    0%,100% { transform: rotate(0deg); }
+    25%      { transform: rotate(-8deg); }
+    75%      { transform: rotate(8deg); }
+  }
+
+  /* ─── Main ─── */
+  main {
+    flex: 1;
+    padding: 20px 24px;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .label {
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .grid-size-btns {
+    display: flex;
+    gap: 4px;
+  }
+  .grid-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-family: var(--mono);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .grid-btn:hover  { border-color: var(--ok); color: var(--text); }
+  .grid-btn.active { border-color: var(--ok); color: var(--ok); background: #0d1f10; }
+
+  /* ─── Camera grid ─── */
+  #camera-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    transition: grid-template-columns 0.3s;
+  }
+  #camera-grid.cols-1 { grid-template-columns: 1fr; }
+  #camera-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  #camera-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  #camera-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+  /* ─── Camera card ─── */
+  .cam-card {
+    background: var(--panel);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid var(--border);
+    transition: border-color 0.3s, box-shadow 0.3s;
+    position: relative;
+  }
+  .cam-card.ok {
+    border-color: var(--ok);
+    box-shadow: 0 0 16px var(--ok-glow), 0 0 4px var(--ok-glow) inset;
+  }
+  .cam-card.fall {
+    border-color: var(--alert);
+    box-shadow: 0 0 30px var(--alert-glow), 0 0 8px var(--alert-glow) inset;
+    animation: fall-pulse 0.8s ease-in-out infinite alternate;
+  }
+  .cam-card.offline { border-color: #30363d; opacity: 0.6; }
+
+  @keyframes fall-pulse {
+    from { box-shadow: 0 0 20px var(--alert-glow), 0 0 6px var(--alert-glow) inset; }
+    to   { box-shadow: 0 0 50px var(--alert-glow), 0 0 16px var(--alert-glow) inset; }
+  }
+
+  /* fall overlay */
+  .fall-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(248,81,73,0.12);
+    display: none;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .cam-card.fall .fall-overlay { display: block; }
+
+  .fall-badge {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: var(--alert);
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 3px;
+    letter-spacing: 0.1em;
+    display: none;
+    z-index: 10;
+    animation: badge-pop 0.3s cubic-bezier(.17,.67,.48,1.5);
+  }
+  .cam-card.fall .fall-badge { display: block; }
+  @keyframes badge-pop {
+    from { transform: scale(0.6); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+
+  /* video area */
+  .cam-video {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    overflow: hidden;
+  }
+  .cam-video img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: opacity 0.1s;
+  }
+  .cam-video .offline-msg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .cam-video .offline-icon { font-size: 32px; opacity: 0.4; }
+
+  /* card footer */
+  .cam-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .cam-name {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cam-status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .ok-dot    { background: var(--ok);    box-shadow: 0 0 6px var(--ok); }
+  .fall-dot  { background: var(--alert); box-shadow: 0 0 8px var(--alert);
+               animation: dot-blink 0.6s ease-in-out infinite alternate; }
+  .off-dot   { background: var(--border); }
+  @keyframes dot-blink {
+    from { opacity: 1; }
+    to   { opacity: 0.3; }
+  }
+
+  .cam-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+  }
+  .cam-meta .score { color: var(--alert); font-weight: 700; }
+
+  /* ─── Empty / loading state ─── */
+  #loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    gap: 16px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--ok);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Log panel ─── */
+  #log-panel {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    height: 140px;
+    overflow-y: auto;
+    padding: 10px 24px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .log-entry { padding: 2px 0; border-bottom: 1px solid #ffffff08; }
+  .log-entry .ts   { color: #444d56; margin-right: 8px; }
+  .log-entry.warn  { color: var(--warn); }
+  .log-entry.error { color: var(--alert); }
+  .log-entry.ok    { color: var(--ok); }
+
+  /* ─── Scrollbar ─── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ─── Header ─────────────────────────────── -->
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="16" cy="16" r="15" stroke="#2ea043" stroke-width="1.5"/>
+      <path d="M16 8v8l5 3" stroke="#2ea043" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="16" cy="16" r="3" fill="#2ea043"/>
+    </svg>
+  </div>
+  <h1>Fall Detection Monitor</h1>
+  <div class="header-right">
+    <div class="fall-counter" id="fall-counter">0 FALLS</div>
+    <div class="ws-status">
+      <div class="ws-dot" id="ws-dot"></div>
+      <span id="ws-label">CONNECTING</span>
+    </div>
+  </div>
+</header>
+
+<!-- ─── Alert banner ───────────────────────── -->
+<div id="alert-banner">
+  <span class="alert-icon">⚠</span>
+  <span id="alert-text">FALL DETECTED</span>
+</div>
+
+<!-- ─── Main content ───────────────────────── -->
+<main>
+  <div class="toolbar">
+    <span class="label">Layout</span>
+    <div class="grid-size-btns">
+      <button class="grid-btn" onclick="setGrid(1)">1</button>
+      <button class="grid-btn active" onclick="setGrid(2)">2</button>
+      <button class="grid-btn" onclick="setGrid(3)">3</button>
+      <button class="grid-btn" onclick="setGrid(4)">4</button>
+      <button class="grid-btn" onclick="setGrid(0)">Auto</button>
+    </div>
+  </div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <span>Connecting to server…</span>
+  </div>
+
+  <div id="camera-grid" class="cols-2" style="display:none"></div>
+</main>
+
+<!-- ─── Event log ───────────────────────────── -->
+<div id="log-panel" id="log-panel"></div>
+
+<script>
+// ─── State ─────────────────────────────────────────────────────────────────
+const camStates = {};        // id → last known state
+let ws = null;
+let reconnectTimer = null;
+
+// ─── Logging ───────────────────────────────────────────────────────────────
+const logPanel = document.getElementById('log-panel');
+function addLog(msg, type = '') {
+  const ts = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  const el = document.createElement('div');
+  el.className = 'log-entry ' + type;
+  el.innerHTML = `<span class="ts">${ts}</span>${msg}`;
+  logPanel.prepend(el);
+  while (logPanel.children.length > 200) logPanel.lastChild.remove();
+}
+
+// ─── Grid layout ──────────────────────────────────────────────────────────
+function setGrid(cols) {
+  const grid = document.getElementById('camera-grid');
+  grid.className = cols === 0 ? '' : `cols-${cols}`;
+  document.querySelectorAll('.grid-btn').forEach(b => b.classList.remove('active'));
+  const labels = ['1','2','3','4','Auto'];
+  const idx = cols === 0 ? 4 : cols - 1;
+  document.querySelectorAll('.grid-btn')[idx]?.classList.add('active');
+}
+
+// ─── Build / update camera card ───────────────────────────────────────────
+function getOrCreateCard(cam) {
+  const grid = document.getElementById('camera-grid');
+  let card = document.getElementById('card-' + cam.id);
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'card-' + cam.id;
+    card.className = 'cam-card';
+    card.innerHTML = `
+      <div class="fall-overlay"></div>
+      <div class="fall-badge">⚠ FALL</div>
+      <div class="cam-video">
+        <img id="img-${cam.id}" src="" alt="" style="display:none"/>
+        <div class="offline-msg" id="offline-${cam.id}">
+          <span class="offline-icon">📷</span>
+          <span>Connecting…</span>
+        </div>
+      </div>
+      <div class="cam-footer">
+        <div class="cam-status-dot off-dot" id="dot-${cam.id}"></div>
+        <div class="cam-name">${cam.name}</div>
+        <div class="cam-meta" id="meta-${cam.id}">
+          <span id="meta-id-${cam.id}">${cam.id}</span>
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  }
+  return card;
+}
+
+function updateCard(cam) {
+  const card = getOrCreateCard(cam);
+  const img        = document.getElementById('img-' + cam.id);
+  const offline    = document.getElementById('offline-' + cam.id);
+  const dot        = document.getElementById('dot-' + cam.id);
+  const meta       = document.getElementById('meta-' + cam.id);
+
+  // Frame
+  if (cam.frame) {
+    img.src = 'data:image/jpeg;base64,' + cam.frame;
+    img.style.display = 'block';
+    offline.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    offline.style.display = 'flex';
+    offline.innerHTML = cam.connected
+      ? '<span class="offline-icon">⏳</span><span>Waiting for frame…</span>'
+      : '<span class="offline-icon">📷</span><span>Offline</span>';
+  }
+
+  // State class
+  card.classList.remove('ok', 'fall', 'offline');
+  dot.classList.remove('ok-dot', 'fall-dot', 'off-dot');
+  if (!cam.connected) {
+    card.classList.add('offline');
+    dot.classList.add('off-dot');
+  } else if (cam.fall_detected) {
+    card.classList.add('fall');
+    dot.classList.add('fall-dot');
+  } else {
+    card.classList.add('ok');
+    dot.classList.add('ok-dot');
+  }
+
+  // Meta
+  if (cam.fall_detected) {
+    meta.innerHTML = `
+      <span class="score">FALL ${(cam.fall_score * 100).toFixed(0)}%</span>
+      <span>${cam.fall_angle.toFixed(1)}°</span>`;
+  } else {
+    meta.innerHTML = `<span>${cam.id}</span>`;
+  }
+}
+
+// ─── Header counters & banner ─────────────────────────────────────────────
+function updateHeader(cameras) {
+  const falls = cameras.filter(c => c.fall_detected);
+  const counter = document.getElementById('fall-counter');
+  const banner  = document.getElementById('alert-banner');
+  const alertTxt= document.getElementById('alert-text');
+
+  counter.textContent = falls.length + (falls.length === 1 ? ' FALL' : ' FALLS');
+  counter.classList.toggle('active', falls.length > 0);
+
+  if (falls.length > 0) {
+    banner.classList.add('visible');
+    const names = falls.map(c => c.name).join(', ');
+    alertTxt.textContent = `⚠ FALL DETECTED — ${names}`;
+  } else {
+    banner.classList.remove('visible');
+  }
+}
+
+// ─── Process incoming WS message ─────────────────────────────────────────
+function handleMessage(data) {
+  const { cameras } = data;
+  const grid    = document.getElementById('camera-grid');
+  const loading = document.getElementById('loading');
+
+  if (cameras.length > 0 && loading.style.display !== 'none') {
+    loading.style.display = 'none';
+    grid.style.display = 'grid';
+    addLog(`Monitoring ${cameras.length} camera(s)`, 'ok');
+  }
+
+  cameras.forEach(cam => {
+    const prev = camStates[cam.id];
+
+    // Log transitions
+    if (prev) {
+      if (!prev.connected && cam.connected)
+        addLog(`${cam.name} — connected`, 'ok');
+      if (prev.connected && !cam.connected)
+        addLog(`${cam.name} — disconnected`, 'error');
+      if (!prev.fall_detected && cam.fall_detected)
+        addLog(`${cam.name} — FALL detected (${(cam.fall_score*100).toFixed(0)}% conf, ${cam.fall_angle.toFixed(1)}°)`, 'error');
+      if (prev.fall_detected && !cam.fall_detected)
+        addLog(`${cam.name} — fall alert cleared`, 'warn');
+    }
+
+    camStates[cam.id] = cam;
+    updateCard(cam);
+  });
+
+  updateHeader(cameras);
+}
+
+// ─── WebSocket ───────────────────────────────────────────────────────────
+function connect() {
+  const dot   = document.getElementById('ws-dot');
+  const label = document.getElementById('ws-label');
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    dot.className   = 'ws-dot connected';
+    label.textContent = 'LIVE';
+    addLog('WebSocket connected', 'ok');
+    // Send periodic pings to keep connection alive
+    ws._pingTimer = setInterval(() => ws.readyState === 1 && ws.send('ping'), 5000);
+  };
+
+  ws.onmessage = (e) => {
+    try { handleMessage(JSON.parse(e.data)); }
+    catch (err) { console.error('Parse error', err); }
+  };
+
+  ws.onclose = ws.onerror = () => {
+    dot.className   = 'ws-dot disconnected';
+    label.textContent = 'DISCONNECTED';
+    clearInterval(ws._pingTimer);
+    addLog('Connection lost — retrying in 3 s…', 'warn');
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+}
+
+connect();
+</script>
+</body>
+</html>
